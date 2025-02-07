@@ -238,7 +238,7 @@ def place_order(client, order_type):
 
         last_order_status = f"Đã mua {quantity} BTC. Stop-loss đặt tại: {stop_loss_price:.1f} USDT."
         print(f"✅ Lệnh BUY thành công! Stop-Loss đặt tại: {stop_loss_price:.1f} USDT")
-
+        continue
     elif order_type == "sell":
         # Đặt lệnh SELL thị trường
         client.futures_create_order(
@@ -262,7 +262,7 @@ def place_order(client, order_type):
 
         last_order_status = f"Đã bán {quantity} BTC. Stop-loss đặt tại: {stop_loss_price:.1f} USDT."
         print(f"✅ Lệnh SELL thành công! Stop-Loss đặt tại: {stop_loss_price:.1f} USDT")
-
+        continue
 # Hàm kiểm tra điều kiện Stop Loss/Take Profit (Chỉ giữ điều kiện dựa trên PNL)
 def check_sl_tp(client, symbol):
     global last_order_status, stop_loss_price
@@ -280,8 +280,8 @@ def check_sl_tp(client, symbol):
         print(f"Điều kiện StopLoss đạt được (PNL <= -100%). Đóng lệnh.")
         close_position(client, pnl_percentage, pnl_usdt)
     #    return "stop_loss"
-    elif pnl_percentage >= 170:
-        print(f"Điều kiện TakeProfit đạt được (PNL >= 170%). Đóng lệnh.")
+    elif pnl_percentage >= 175:
+        print(f"Điều kiện TakeProfit đạt được (PNL >= 175%). Đóng lệnh.")
         close_position(client, pnl_percentage, pnl_usdt)
     #   return "take_profit"
 
@@ -326,10 +326,11 @@ def close_position(client, pnl_percentage, pnl_usdt):
     if qty > 0:  # Nếu đang Long, đóng bằng lệnh SELL
         client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=qty)
         last_order_status = f"Đã đóng lệnh Long {qty} BTC."
+        continue
     elif qty < 0:  # Nếu đang Short, đóng bằng lệnh BUY
         client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=abs(qty))
         last_order_status = f"Đã đóng lệnh Short {abs(qty)} BTC."
-
+        continue
     # Kiểm tra nếu PNL bị None, gán về 0.0
     pnl_percentage = pnl_percentage if pnl_percentage is not None else 0.0
     pnl_usdt = pnl_usdt if pnl_usdt is not None else 0.0
@@ -341,7 +342,7 @@ def close_position(client, pnl_percentage, pnl_usdt):
     
     # Lưu lịch sử giao dịch
     save_trade_history(pnl_percentage, pnl_usdt, entry_price, entry_type)
-
+    continue
 
 
 
