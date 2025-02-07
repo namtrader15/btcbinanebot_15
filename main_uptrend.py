@@ -8,9 +8,10 @@ from datetime import datetime
 from PNL_Check import extract_pnl_and_position_info, get_pnl_percentage, get_pnl_usdt  # Sử dụng hàm từ PNL_Check
 from trade_history import save_trade_history  # Import từ trade_history.py
 import socket
-#from playsound import playsound
+from playsound import playsound
 from atr_check import atr_stop_loss_finder  # Gọi hàm từ file atr_calculator.py
 from TPO_POC import calculate_poc_value  
+from VWAP import get_vwap_signal
 
 # Biến toàn cục để lưu trữ client và thông tin giao dịch
 client = None
@@ -31,7 +32,7 @@ def is_connected():
 def alert_sound():
     try:
         print(f"Lỗi phát âm thanh: {str(e)}")
-     #   playsound(r"C:\Users\DELL\Desktop\GPT train\noconnect.mp3")
+        playsound(r"C:\Users\DELL\Desktop\GPT train\noconnect.mp3")
     except Exception as e:
         print(f"Lỗi phát âm thanh: {str(e)}")
 
@@ -39,12 +40,12 @@ def check_internet_and_alert():
     try:
         if not is_connected():
             print("Mất kết nối internet. Đang phát cảnh báo...")
-       #     playsound(r"C:\Users\DELL\Desktop\GPT train\noconnect.mp3")
+            playsound(r"C:\Users\DELL\Desktop\GPT train\noconnect.mp3")
             time.sleep(5)
             return False
     except Exception as e:
         print(f"Lỗi khi kiểm tra kết nối: {str(e)}")
-     #   playsound(r"C:\Users\DELL\Desktop\GPT train\noconnect.mp3")
+        #playsound(r"C:\Users\DELL\Desktop\GPT train\noconnect.mp3")
         time.sleep(5)
         return False
     return True
@@ -201,12 +202,7 @@ def place_order(client, order_type):
         leverage = max(1, min(round(leverage), 125))  # Đảm bảo leverage nằm trong khoảng 1-125
         set_leverage(client, symbol, leverage)
 
-    # Lấy số dư tài khoản USDT
-    account_balance = get_account_balance(client)  
-
-    # Tính 23% tài khoản nhưng không nhỏ hơn 17 USDT, làm tròn về số nguyên
-    trading_balance = round(max(account_balance * 0.23, 17)) * leverage 
-
+    trading_balance = 27 * leverage  # Sử dụng R:R để tính số lượng giao dịch - Risk=25$
     ticker = client.get_symbol_ticker(symbol=symbol)
     btc_price = float(ticker['price'])
     quantity = round(trading_balance / btc_price, 3)
@@ -216,52 +212,15 @@ def place_order(client, order_type):
         return
 
     if order_type == "buy":
-        # Đặt lệnh BUY thị trường
-        client.futures_create_order(
-            symbol=symbol,
-            side='BUY',
-            type='MARKET',
-            quantity=quantity
-        )
-
-        # Làm tròn giá Stop-Loss về .1f theo yêu cầu Binance
-        stop_loss_price = round(stop_loss_price, 1)
-
-        # Đặt lệnh Stop-Loss cho lệnh BUY (Stop-Market)
-        client.futures_create_order(
-            symbol=symbol,
-            side='SELL',  # Đóng lệnh Long bằng Sell
-            type='STOP_MARKET',
-            stopPrice=stop_loss_price,
-            closePosition=True
-        )
-
-        last_order_status = f"Đã mua {quantity} BTC. Stop-loss đặt tại: {stop_loss_price:.1f} USDT."
-        print(f"✅ Lệnh BUY thành công! Stop-Loss đặt tại: {stop_loss_price:.1f} USDT")
-
+        client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=quantity)
+        last_order_status = f"Đã mua {quantity} BTC. Stop-loss đặt tại: {stop_loss_price:.2f} USDT."
+        print(f"Giá trị stop-loss cho lệnh Buy: {stop_loss_price:.2f} USDT")
     elif order_type == "sell":
-        # Đặt lệnh SELL thị trường
-        client.futures_create_order(
-            symbol=symbol,
-            side='SELL',
-            type='MARKET',
-            quantity=quantity
-        )
+        client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=quantity)
+        last_order_status = f"Đã bán {quantity} BTC. Stop-loss đặt tại: {stop_loss_price:.2f} USDT."
+        print(f"Giá trị stop-loss cho lệnh Sell: {stop_loss_price:.2f} USDT")
 
-        # Làm tròn giá Stop-Loss về .1f theo yêu cầu Binance
-        stop_loss_price = round(stop_loss_price, 1)
 
-        # Đặt lệnh Stop-Loss cho lệnh SELL (Stop-Market)
-        client.futures_create_order(
-            symbol=symbol,
-            side='BUY',  # Đóng lệnh Short bằng Buy
-            type='STOP_MARKET',
-            stopPrice=stop_loss_price,
-            closePosition=True
-        )
-
-        last_order_status = f"Đã bán {quantity} BTC. Stop-loss đặt tại: {stop_loss_price:.1f} USDT."
-        print(f"✅ Lệnh SELL thành công! Stop-Loss đặt tại: {stop_loss_price:.1f} USDT")
 
 # Hàm kiểm tra điều kiện Stop Loss/Take Profit (Chỉ giữ điều kiện dựa trên PNL)
 def check_sl_tp(client, symbol):
@@ -280,8 +239,8 @@ def check_sl_tp(client, symbol):
         print(f"Điều kiện StopLoss đạt được (PNL <= -100%). Đóng lệnh.")
         close_position(client, pnl_percentage, pnl_usdt)
     #    return "stop_loss"
-    elif pnl_percentage >= 170:
-        print(f"Điều kiện TakeProfit đạt được (PNL >= 170%). Đóng lệnh.")
+    elif pnl_percentage >= 175:
+        print(f"Điều kiện TakeProfit đạt được (PNL >= 175%). Đóng lệnh.")
         close_position(client, pnl_percentage, pnl_usdt)
     #   return "take_profit"
 
@@ -291,59 +250,24 @@ def check_sl_tp(client, symbol):
 def close_position(client, pnl_percentage, pnl_usdt):
     global last_order_status
     symbol = 'BTCUSDT'
-
-    # Lấy thông tin vị thế
     position_info = client.futures_position_information(symbol=symbol)
-    qty = float(position_info[0]['positionAmt'])  
+    qty = float(position_info[0]['positionAmt'])
+    entry_price = float(position_info[0]['entryPrice'])
+    entry_type = "Long" if qty > 0 else "Short" if qty < 0 else "Không có vị thế"
 
-    # Kiểm tra nếu không có vị thế mở
-    if qty == 0:
-        print("⚠️ Không có vị thế mở. Bỏ qua đóng lệnh.")
-        return
-
-    # Lấy giá vào lệnh an toàn
-    try:
-        entry_price = float(position_info[0]['entryPrice'])
-    except (TypeError, ValueError):
-        print("❌ Lỗi: Không thể lấy giá vào lệnh. Không thực hiện đóng lệnh.")
-        return
-
-    entry_type = "Long" if qty > 0 else "Short"
-
-    # Hủy tất cả lệnh Stop-Loss hoặc Take-Profit trước khi đóng lệnh
-    try:
-        print("🛑 Kiểm tra và hủy các lệnh Stop-Loss / Take-Profit...")
-        open_orders = client.futures_get_open_orders(symbol=symbol)  # Lấy danh sách lệnh chờ
-        for order in open_orders:
-            if order['type'] in ['STOP_MARKET', 'TAKE_PROFIT_MARKET']:  # Chỉ hủy lệnh Stop-Loss và Take-Profit
-                client.futures_cancel_order(symbol=symbol, orderId=order['orderId'])
-                print(f"✅ Đã hủy lệnh {order['type']} - OrderID: {order['orderId']}")
-        print("✅ Tất cả lệnh Stop-Loss / Take-Profit đã bị hủy!")
-    except Exception as e:
-        print(f"⚠️ Lỗi khi hủy lệnh Stop-Loss: {str(e)}")
-
-    # Đóng vị thế hiện tại
-    if qty > 0:  # Nếu đang Long, đóng bằng lệnh SELL
+    if qty > 0:
         client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=qty)
-        last_order_status = f"Đã đóng lệnh Long {qty} BTC."
-    elif qty < 0:  # Nếu đang Short, đóng bằng lệnh BUY
+        last_order_status = f"Đã đóng lệnh long {qty} BTC."
+    elif qty < 0:
         client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=abs(qty))
-        last_order_status = f"Đã đóng lệnh Short {abs(qty)} BTC."
+        last_order_status = f"Đã đóng lệnh short {abs(qty)} BTC."
+    else:
+        last_order_status = "Không có vị thế mở."
 
-    # Kiểm tra nếu PNL bị None, gán về 0.0
-    pnl_percentage = pnl_percentage if pnl_percentage is not None else 0.0
-    pnl_usdt = pnl_usdt if pnl_usdt is not None else 0.0
-
-    pnl_percentage_display = f"+{pnl_percentage:.2f}%" if pnl_percentage >= 0 else f"{pnl_percentage:.2f}%"
-    pnl_usdt_display = f"+{pnl_usdt:.2f} USDT" if pnl_usdt >= 0 else f"{pnl_usdt:.2f} USDT"
-
-    print(f"🔴 Đóng lệnh - Entry Price: {entry_price:.2f} USDT, Entry Type: {entry_type}, PNL hiện tại: {pnl_usdt_display}, PNL (%): {pnl_percentage_display}")
-    
-    # Lưu lịch sử giao dịch
+    pnl_percentage_display = f"+{pnl_percentage:.2f}%" if pnl_percentage > 0 else f"-{abs(pnl_percentage):.2f}%"
+    pnl_usdt_display = f"+{pnl_usdt:.2f} USDT" if pnl_usdt > 0 else f"-{abs(pnl_usdt):.2f} USDT"
+    print(f"Đóng lệnh - PNL hiện tại (USDT): {pnl_usdt_display}, PNL hiện tại (%): {pnl_percentage_display}, Entry Price: {entry_price:.2f} USDT, Entry Type: {entry_type}")
     save_trade_history(pnl_percentage, pnl_usdt, entry_price, entry_type)
-
-
-
 
 # Biến toàn cục để theo dõi số vòng lặp
 loop_count = 0  # Khởi tạo biến đếm vòng lặp
@@ -351,8 +275,8 @@ loop_count = 0  # Khởi tạo biến đếm vòng lặp
 # Hàm bot giao dịch chạy mỗi 60 giây
 def trading_bot():
     global client, loop_count
-    api_key = '2mNFdcJog11tBrlu4kvVv4RMUpfnnQtqAyWLuz9DUMOcrD0RUHoFUPHfDEkpt0u2'
-    api_secret = 'xXCBgzZTJs4vsCbk26Hs6OuMct01ChDzRJrbJiIfzgCqx8OkD2CUoZMRL8wvc0Tu'
+    api_key = '1YViGTrm46GQGmfwKXc2tazzLbe1TRvlDykNcptZOtRlQJUBJmYq7NanS0tNxKRB'
+    api_secret = '5i0Io4YRiL4euqkG6LbVymY2zVW3OF386xw4aedwxgYYygRdfxhc4NSGhbZ9SEki'
     client = Client(api_key, api_secret, tld='com', testnet=False)
     symbol = 'BTCUSDT'
 
@@ -369,53 +293,48 @@ def trading_bot():
 
             # Lấy thông tin vị thế hiện tại
             position_info = client.futures_position_information(symbol=symbol)
-            qty = float(position_info[0]['positionAmt'])  # Số lượng BTC đang giữ
-            entry_price = float(position_info[0]['entryPrice']) if qty != 0 else None
+            qty = float(position_info[0]['positionAmt'])
 
-            if qty != 0:  
-                print("✅ Đang có vị thế mở. Kiểm tra xu hướng để quyết định đóng lệnh...")    
-            else:
-                print("⏳ Chưa có vị thế mở. Kiểm tra xu hướng để thực hiện lệnh mới...")
+            # Nếu đã có lệnh mở, giảm thời gian vòng lặp xuống 60 giây
+            if qty != 0:  # Nếu có vị thế mở cho BTCUSDT
+                print("Hiện đã có lệnh mở cho BTCUSDT. Vòng lặp sẽ lặp lại sau 60 giây.")
+                time.sleep(60)
+                continue  # Tiếp tục vòng lặp để kiểm tra lại sau 60 giây
 
-            # Luôn kiểm tra xu hướng
+            # Nếu không có vị thế mở, kiểm tra xu hướng và thực hiện giao dịch
             final_trend = get_final_trend(client)
-            print(f"🔍 Kết quả xu hướng từ hàm get_final_trend(): {final_trend}")
+            print(f"Kết quả xu hướng từ hàm get_final_trend(): {final_trend}")
 
-            # Nếu có vị thế mở, kiểm tra xem có cần đóng lệnh hay không
-            if qty > 0 and final_trend == "Xu hướng giảm":  # Đang Long mà xu hướng giảm
-                print(f"⚠️ Xu hướng giảm. Đóng lệnh Long tại giá hiện tại: {entry_price:.2f} USDT!")
-                close_position(client, None, None)
-                time.sleep(5)
-                continue  # Chờ 5 giây rồi kiểm tra lại
+            # Nếu xu hướng không rõ ràng, nghỉ lâu hơn (600 giây)
+            if final_trend == "Xu hướng không rõ ràng":
+                print("Xu hướng không rõ ràng. Nghỉ 600 giây.")
+                time.sleep(600)
+                continue
 
-            elif qty < 0 and final_trend == "Xu hướng tăng":  # Đang Short mà xu hướng tăng
-                print(f"⚠️ Xu hướng tăng. Đóng lệnh Short tại giá hiện tại: {entry_price:.2f} USDT!")
-                close_position(client, None, None)
-                time.sleep(5)
-                continue  # Chờ 5 giây rồi kiểm tra lại
+            # Logic POC 
+            mark_price = float(position_info[0]['markPrice'])
+            poc_value = calculate_poc_value(client)
+            price_difference_percent = abs((poc_value - mark_price) / mark_price) * 100
 
-            # Nếu không có vị thế mở, thực hiện lệnh mới
-            if qty == 0:
-                # Nếu xu hướng không rõ ràng, nghỉ lâu hơn (600 giây)
-                if final_trend == "Xu hướng không rõ ràng":
-                    print("⚠️ Xu hướng không rõ ràng. Nghỉ 600 giây.")
-                    time.sleep(600)
-                    continue
+            if price_difference_percent <= 0.5:  # Điều kiện chênh lệch không quá 0.5%
+                if final_trend == "Xu hướng tăng":
+                    print("Xu hướng tăng. POC value gần mark price. Thực hiện lệnh mua.")
+                    place_order(client, "buy")
+                elif final_trend == "Xu hướng giảm":
+                    print("Xu hướng giảm. POC value gần mark price. Thực hiện lệnh bán.")
+                    place_order(client, "sell")
+            else:
+                print(f"Chênh lệch giữa POC và mark price: {price_difference_percent:.2f}%. Không thực hiện lệnh.")
 
-                # Tính toán giá trị POC và kiểm tra điều kiện chênh lệch
-                mark_price = float(position_info[0]['markPrice'])
-                poc_value = calculate_poc_value(client)
-                price_difference_percent = abs((poc_value - mark_price) / mark_price) * 100
-
-                if price_difference_percent <= 0.5:  # Điều kiện chênh lệch không quá 0.5%
-                    if final_trend == "Xu hướng tăng":
-                        print("🚀 Xu hướng tăng. POC value gần mark price. Thực hiện lệnh mua.")
-                        place_order(client, "buy")
-                    elif final_trend == "Xu hướng giảm":
-                        print("📉 Xu hướng giảm. POC value gần mark price. Thực hiện lệnh bán.")
-                        place_order(client, "sell")
-                else:
-                    print(f"⚠️ Chênh lệch giữa POC và mark price: {price_difference_percent:.2f}%. Không thực hiện lệnh.")
+            # Logic độc lập cho VWAP
+            vwap_signal = get_vwap_signal(symbol="BTCUSDT")
+            print(f"Tín hiệu VWAP: {vwap_signal}")
+            if final_trend == "Xu hướng tăng" and vwap_signal == 1:
+                print("Xu hướng tăng và tín hiệu VWAP là 1. Thực hiện lệnh mua (VWAP).")
+                place_order(client, "buy")
+            elif final_trend == "Xu hướng giảm" and vwap_signal == 0:
+                print("Xu hướng giảm và tín hiệu VWAP là 0. Thực hiện lệnh bán (VWAP).")
+                place_order(client, "sell")
 
             # Sau khi thực hiện giao dịch, nếu không có vị thế, tiếp tục vòng lặp sau 60 giây
             time.sleep(60)
@@ -425,16 +344,16 @@ def trading_bot():
 
             # Reset sau 100 vòng lặp
             if loop_count >= 100:
-                print("🔄 Đã đạt 100 vòng lặp. Reset dữ liệu...")
+                print("Đã đạt 100 vòng lặp. Reset dữ liệu...")
                 last_order_status = None  # Reset trạng thái lệnh cuối cùng
                 stop_loss_price = None  # Reset giá trị stop-loss
                 loop_count = 0  # Reset lại biến đếm vòng lặp
                 client = Client(api_key, api_secret, tld='com', testnet=False)  # Reset lại client nếu cần
 
         except Exception as e:
-            print(f"❌ Lỗi khi gọi API hoặc xử lý giao dịch: {str(e)}")
-         #   playsound(r"C:\Users\DELL\Desktop\GPT train\noconnect.mp3")
+            print(f"Lỗi khi gọi API hoặc xử lý giao dịch: {str(e)}")
             time.sleep(5)
+
 
 if __name__ == "__main__":
     trading_thread = threading.Thread(target=trading_bot)
